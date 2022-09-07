@@ -1,0 +1,797 @@
+---
+title: "ALY 6010 Final Project"
+author: "Harry Podolsky"
+date: "2021-12-12"
+output: 
+  html_document:
+      theme: "cosmo"
+      toc: yes
+      toc_float: yes
+      toc_depth: 2
+      number_sections: true
+      code_folding: hide
+---
+  
+```{r, message=FALSE, warning=FALSE}
+options(stringsAsFactors = FALSE)
+
+options(repr.plot.width = 60, repr.plot.height = 60)
+
+library(dplyr)
+library(FSAdata)
+library(FSA)
+library(magrittr)
+library(ggplot2)
+library(ggthemes)
+library(ggpubr)
+library(ggfortify)
+library(scales)
+library(tidyr)
+library(tidyverse)
+library(lubridate)
+library(gridExtra)
+library(moonBook)
+library(webr)
+library(PerformanceAnalytics)
+library(Hmisc)
+library(kableExtra)
+library(magick)
+```
+
+```{r}
+city_temp_clean<- read.csv(file.choose())
+
+#Custom function for saving graphs
+
+save_graph <- function(graph, filename){
+  
+  ggsave(filename=filename, plot=graph, device="png", height= 6, width=8, dpi=300)
+  
+}
+
+
+```
+
+
+**A note on report format**: This report is divided into five primary sections.
+
+|           * **Introduction** describes the data and outlines my goals with this project. 
+
+|           * **Data Description** summarizes data subsetting and cleaning efforts and the rationale behind those decisions. 
+
+|           * **Hypothesis Testing** summarizes the findings of t-tests completed on subsets of the data.
+
+|           * **Correlation/Regression Testing** describes the characteristics of several linear models and correlations. 
+
+|           * **Conclusion** provides some final thoughts. 
+
+|           * Additional sections include **References** in APA Style, and an **Appendix of Supplementary Material**
+
+
+# Introduction and Overview of Past Work
+
+|           The raw dataset city_temperature.csv contains daily temperature data for 321 cities running from 1995 to March 2020. The set consists of more than 2.9 million total rows. While there is a large amount of data, there are issues with missing values, and a general imbalance of total number of observations by region. My strategy for removing/minimizing these issues are described further in this report. The general of temperature and time over this time period is positive - average global annual temperature increases for these observations made between 1995 and 2020. See Appendix: **{r Global_Temperature_With_Trend_Line}**. However, two characteristics of this data introduce a large amount of noise at more granular resolutions - seasonality, and distribution of observation points (all of the data was collected in cities). 
+
+
+# Data Description
+
+|           With the exception of the global average chart, this report only considers cities with a full record from 1995 - 2019. I began my efforts by removing missing data, and then further filtering by city to isolate locations with a complete record and minimal NAs. I then went on to compare cities from within this smaller slice. 
+
+|           The data contains several blanks and placeholders- the compilers inputted -99 degrees Fahrenheit where there was no temperature data, and there are also a number of records with nonsensical data (day="0") and (Year = "200"|"201"). I removed these data, and also added several columns to aid analysis. These include a column for Celsius, and a column of Parsed Date data that combines the date information into a single column to make filtering specific time frames and monthly averaging more straightforward. I also added a column describing seasonality to the Maine subset for that portion of the research. I go into that strategy in depth in the Correlation/Regression Testing section.
+  
+|           Removing incomplete records creates inconsistencies when comparing different time frames (month or year). Years with incomplete data have fewer data points to average compared to complete years. All 276 cities remaining after initial cleaning are missing some daily temperature records. I allowed some NA data as a result - many statistical analyses ignore NAs for the purposes of generating means in any case, so this is largely irrelevant - but allowing too many would risk comparing dissimilar samples, and also make it more difficult to complete paired tests. I summarized and displayed NA data by city, identifying that the majority of the cities of interest have fewer than 1% total NA data in the process, and created another vector of city names that fit this criteria that I further refined the data with. I was left with 231 cities of interest, each with fewer than 90 blank records across the time frame. I created a vector of the names of cities that meet this criteria, and used that object to sort and remove all other city records. A note on the other 90 cities I have excluded - These data provide a valuable contribution to building my general linear model of global temperature change through time, which I will go into more in depth in Correlation/Regression Testing. I could account for blank data and use those records further by cherry picking time-periods and regions where they are relatively complete - but for the purposes of this large format analysis of the temperature dataset, I deemed this to be outside of the project scope.
+  
+|           To round out the cleaning and subsetting process, I identified that there are a large number of duplicate days of data, and the multiple temperature readings on these days are not always identical. As a result, dropping duplicated dates would mean erasing potentially valid data. Unique temperature records per day are needed in order to compare change by day across time. To strike a balance on this, I elected to average the temperature readings whenever there are multiple options. Given the large number of duplicates uncovered, I felt it important to strike a compromise. Removing the duplicated records entirely would erase almost 20,000 lines. I worked this concept into data filtration and preparation for statistical analyses as needed.
+
+|           The end result is the slice of data I will be examining - namely cities with a full daily record from 1995 through 2019. I do not have to worry about bias as a result of partial data - instead I simply restrict my exploration and analysis to complete records with minimal NAs. This is the subset I am interested in exploring. 
+
+|           The table below shows the large discrepancy in total records by region, and a hint at the behavior of the data. Notice that the warmest region, Africa, with a mean temperature of 74.4 F, also has the lowest standard deviation. This region exhibits less seasonality because it straddles the equator. North America, on the other hand, has a far higher standard deviation. It contains a large number of highly seasonal records, as well as warmer, steadier data from its southern reaches. I include this table because it provides a quick and striking window into the task I undertook. The data are highly concentrated in a few regions, and they exhibit a wide range of behaviors due to location as evidenced by wide ranges in standard deviation. Any global trends extrapolated from urban data samples must be taken with a large grain of salt.
+
+```{r}
+
+summary_statistics_by_region <- city_temp_clean %>%
+  group_by(Region) %>%
+  dplyr::summarize(mean=mean(AvgTemperature, na.rm=TRUE), sd=sd(AvgTemperature,na.rm=TRUE),median=median(AvgTemperature, na.rm = TRUE), Record_count = n())%>%
+  as.data.frame() 
+
+  summary_statistics_by_region <-  rename(summary_statistics_by_region, "Mean Temperature" = mean, "Median" = median, "Standard Deviation" = sd, "Number of Records" = Record_count)
+  
+summ_table_presentation <- summary_statistics_by_region%>% 
+    kbl(caption = "Summary Statistics by Region", ) %>%
+    kable_styling( font_size = 16)%>%
+  kable_paper("hover", full_width = F)%>%
+    kable_material_dark()
+    
+summ_table_presentation
+
+```
+  
+## Cleaning the Data
+
+```{r,results='hide',message=FALSE,warning=FALSE message=FALSE, warning=FALSE, r,results='hide'}
+city_temp_clean <- city_temp_clean %>%
+  filter(Year!=200, Year!=201, Day!=0 , Year!=2020, State!="Washington DC")
+
+#Year 200, year 201, Day 0 are all bad data.
+
+#Year 2000 is incomplete (only thru May)
+city_temp_clean$AvgTemperature[city_temp_clean$AvgTemperature == -99] <- NA
+
+#creating a parsedDate column in order to use liquidate operations
+city_temp_clean$parsedDate <- ymd(paste0(city_temp_clean$Year,"-",city_temp_clean$Month,"-",city_temp_clean$Day))
+
+#Add a Celsius column with one decimal
+
+city_temp_clean$AvgTempCelsius <- ((city_temp_clean$AvgTemperature-32)*(5/9))
+city_temp_clean$AvgTempCelsius <- sapply(city_temp_clean$AvgTempCelsius, round,digits=1)
+
+city_temp_clean %>%
+  group_by(City) %>%
+  summarise(Annual_Avg=mean(AvgTempCelsius, na.rm=TRUE), Record_count=n())%>%
+  arrange(Record_count)
+
+#Creating my character vector of cities with complete count of records.
+full_record_cities <- city_temp_clean %>%
+  group_by(City) %>%
+  summarise(Annual_Avg=mean(AvgTempCelsius, na.rm=TRUE), Record_count=n()) %>% filter(Record_count>=9131) %>% arrange(-Record_count)%>% dplyr::select(City)
+
+#Filtering the dataframe by complete records:
+city_temp_clean <- city_temp_clean %>%
+  filter(is.element(City, full_record_cities$City))
+
+
+#Confirming that only complete city records remain in the data set (Full complement of daily records from 1995-2019). I still have duplicates to deal with.
+
+city_temp_clean %>%
+  group_by(City) %>%
+  dplyr::summarise(Annual_Avg=mean(AvgTempCelsius, na.rm=TRUE), Record_count=n())%>%
+  arrange(-Record_count)
+
+
+# I want to see how many NA records each city has:
+
+city_temp_clean %>%
+  group_by(City) %>%
+  summarise(nas_present = sum(is.na(AvgTempCelsius))) %>%
+  arrange(nas_present)
+
+#Filtering out Cities with greater than 91 (approximately 1%) NA records
+
+city_temp_clean %>%
+  group_by(City) %>%
+  summarise(nas_present = sum(is.na(AvgTempCelsius))) %>%
+  arrange(nas_present)%>%
+  filter(nas_present<=91)
+
+#Creating a character vector of Cities with fewer than 91 NAs, and filtering by that vector.
+
+good_cities <- city_temp_clean %>%
+  group_by(City) %>%
+  summarise(nas_present = sum(is.na(AvgTempCelsius))) %>%
+  filter(nas_present<=91)%>%
+  dplyr::select(City)
+
+city_temp_clean <- city_temp_clean %>%
+  filter(is.element(City, good_cities$City))
+
+city_list <- city_temp_clean%>%  
+  group_by(City)%>%
+  summarise(nas_present = sum(is.na(AvgTempCelsius)),record_count = n())%>%
+  arrange(-nas_present)%>%
+  unique()
+
+#a list of duplicated date records
+non_unique_dates <- city_temp_clean %>%
+  group_by(Region, State, City, Country, parsedDate) %>%
+  summarise(count_of_obs=n()) %>%
+  filter(count_of_obs>1)%>%
+  arrange(-count_of_obs)
+ 
+
+```
+
+```{r,results='hide',message=FALSE,warning=FALSE}
+
+# Counting the NAs in Auckland 1995 and 2019 data: 7 NA total
+city_temp_clean %>%
+  group_by(Region, State, City, Country, parsedDate) %>%
+  filter(City=='Auckland')%>%
+  dplyr::summarize(count_of_obs=n()) %>%
+  arrange(-count_of_obs)
+
+city_temp_clean %>% 
+    filter(City=="Auckland", is.element(Year, c('2019', '1995'))) %>% 
+  dplyr::select(AvgTempCelsius) %>%
+  is.na() %>%
+  sum()
+```
+
+
+# Correlation and Regression Testing
+
+|           How well fitted is the global linear model for monthly temperature data? The predictor is time in years, and the response variable is monthly temperature. The five summary points of the residuals demonstrate that the model predicts points that fall far away from the actual observed points. the slope of the model is exceedingly small at 1.263e-04, indicating a very weak correlation between time and monthly temperature - there is a miniscule, but positive, increase in temperature by month predicted by this model. The standard error at 1.424e-05 is lower than the slope, but still indicates that the model predicts a degree of variation for the slope. The T value is more than 8 standard deviations from 0, so the model does indicate a nonzero relationship. The P-value is effectively zero. Given that the intercept of the model is 12.78, and residual error is 9.879, we can determine that the percentage error for the model is 77%. Not a great sign for the fit of this model to the data. The R squared of .001135 indicates that roughly .11% of the variance in temperature can be explained by the passage of time in this model. This is an extremely weak R squared, so the model is essentially useless for predicting monthly temperature as it relates to time.
+
+```{r,message=FALSE,warning=FALSE}
+city_temp_clean %>%
+  group_by(City,Year=year(parsedDate),Month=month(parsedDate)) %>% 
+  summarise(AvgTempCelsius=mean(AvgTempCelsius, na.rm = TRUE))%>%
+  mutate(firstofmonth = ymd(paste0(Year,'-' , Month, '-1'))) %>%
+  lm(AvgTempCelsius~firstofmonth, data= .) %>%
+  summary()
+```
+
+|           Below I graphed the global linear model by year. This chart showcases the relatively large confidence interval, and the wide distribution of average temperature records as well. It is clear that the data is noisy, but there is a visible positive correlation throughout the time period. 
+
+```{r}
+
+city_temp_clean%>%
+  group_by(Year)%>%
+  dplyr::summarize(
+    "Annual Average Temperature (C)"=mean(AvgTempCelsius, na.rm=TRUE),SD=sd(AvgTempCelsius, na.rm=TRUE)
+  )%>%
+ggscatter(x = "Year", y = "Annual Average Temperature (C)", 
+          add = "reg.line", 
+          conf.int = TRUE, 
+          add.params = list(color = "red",
+                            fill = "lightblue"),
+          color = "Annual Average Temperature (C)", 
+          cor.coef = TRUE, cor.method = "pearson", 
+          xlab = "Year", ylab = "Temperature in Celsius")+
+          labs(title = "Linear Model of Annual Global Temperature", subtitle= "With Confidence Interval")+
+          theme_bw()
+
+
+```
+
+|           Here I've included diagnostic charts for the annual temperature model. The Residuals vs. Fitted chart demonstrates that the residuals have fairly linear patterns - the slope is close to zero. The Q-Q plot shows that the residuals are normally distributed, a good sign. The Scale Location chart tells us that variance is not equal throughout the time frame - effecting homoscedasticity. The Residuals vs Leverage graph appears to be relatively normal; no single point is overly influential to the model.
+
+```{r}
+library(gridExtra)
+
+annual_lm_diagnostic <- city_temp_clean%>%
+  group_by(Year)%>%
+  dplyr::summarize(
+    "Annual Average Temperature (C)"=mean(AvgTempCelsius, na.rm=TRUE)
+  )%>%
+  lm()%>%
+  autoplot()
+
+gridExtra::grid.arrange(grobs = annual_lm_diagnostic@plots, top = "Diagnostic Charts for Annual Temperature Model")
+  
+```
+
+|           I generated a table of selected characteristics for the annual linear model of each region. I removed most of the variance and only took annual temperature per year for this purpose, to get a general sense of the temperature trend by region and evaluate the fit at that level. It's clear that a temperature increase occurred in every region, with very low P-values across the board - and the R squared values are decently high as well, indicating that the models account for temperature change fairly well.
+
+```{r,message=FALSE,warning=FALSE}
+
+# filter object
+regions_of_interest <- city_temp_clean %>%
+  group_by(Year=year(parsedDate), Region) %>%
+  dplyr::summarize(avg_temp = mean(AvgTempCelsius, na.rm=TRUE))
+  
+
+
+regression_by_region <- function(region_input){
+  
+  temp_fit <- regions_of_interest %>%
+    filter(Region==region_input) %>%
+    lm(avg_temp~Year,data= .) %>%
+    summary()
+  
+  # I can access elements of the summary function output:
+  r_squared <- temp_fit$r.squared
+  coefficient <- temp_fit$coefficients[2]
+  p_value <- temp_fit$coefficients[8]
+  
+  return_list <- list(r_squared, coefficient, p_value)
+  return_list_rounded <- lapply(return_list, round, digits=5)
+  names(return_list_rounded) <- c('R Squared', 'B1 Coefficient', 'P Value')
+  
+  return(return_list_rounded)
+  
+  }
+
+
+
+coef_output <- bind_rows(lapply(unique(regions_of_interest$Region), regression_by_region))
+
+final_analysis <- cbind(Region = unique(regions_of_interest$Region), coef_output)
+final_analysis <- final_analysis%>%
+   kbl(caption = "Summarized Annual Linear Models by Region", ) %>%
+    kable_styling( font_size = 16)%>%
+  kable_paper("hover", full_width = F)%>%
+    kable_material_dark()
+
+final_analysis
+
+
+```
+
+
+|           I honed in further on Europe to complete some correlation and regression tests. I already know that variance due to seasonality will make the Europe model weak. In order to get a sense of the characteristics of the linear model for Europe, I began by determining the slope and intercept of the European average temperature linear model. I grouped by year for the purposes of visualizing the model. I proceeded with using this admittedly weak model in comparison to individual countries. This allows me to test the relationship of temperature to time in general. After identifying the slope and intercept of the European line, I used these constants as inputs to plot the European line alongside individual trends by country to quickly get a look at how each countries linear model relates to the region-wide line. See Appendix: **{r euro_countries_with_trend_line}**. 
+  
+|           I found that there is a wide amount of variation by country. For example, France shows a _negative_ correlation between temperature and time, bucking the larger trend. I took a closer look at France specifically next, to determine how strongly temperature and time are correlated between 1995 and 2019 (Appendix: **{r France_Annual_Average_Trend}**). France's temperature is well above the European average throughout the period. I confirmed that the correlation between temperature and time for France is negative, and noted as well that France's temperature took a marked dip in 2010 (something I will return to later). Next I tested the correlation between France's annualized temperature data and time. My null hypothesis is that there is 0 correlation between these variables. My alternative hypothesis is that the correlation is not equal to zero, that there is a relationship between temperature and time. Based on the Pearson correlation test, I fail to reject the null hypothesis at the alpha 0.05 (level t = -0.71589, df = 23, p-value = 0.4813) There is insufficient evidence to support some correlation between temperature and time in France. This makes sense given the large swings in annual average temperature throughout the time period, which ranges from below 12 degrees C to almost 14 degrees C. A quick plot of this linear model against the yhat confirms that there is no visible correlation between the actual points and predicted points (see Appendix: **{r France_lm_yhat_plotting}**.
+  
+```{r}
+
+euro_linear_model <- city_temp_clean%>%filter(Region=="Europe")%>%
+  group_by(Year=year(parsedDate))%>%
+  dplyr::summarize(avgtemp=mean(AvgTempCelsius,na.rm=TRUE))%>%
+  lm(avgtemp~Year,data= .)
+
+euro_intercept <- euro_linear_model$coefficients[1]
+euro_slope <- euro_linear_model$coefficients[2]
+
+
+```
+
+
+## An Inquiry Into Seasonality
+
+|           How much does seasonality impact the quality of a linear model, and can I factor seasonality out to build a stronger model? I began by creating a data frame for Maine records, and added an approximate seasonal category to it. By month number, 12,1,2 are assigned to Winter, 3,4,5 to Spring, 6,7,8 to Summer, and 9,10,11 to Fall. I recognize that these seasonal designations don't fit seasonality perfectly, and that seasons can shift around year to year in Maine. This should be considered an initial effort to isolate the seasons as factors in order to improve the regression. I chose to subset to Maine for this exploration because the state interests me, and to limit computational effort while testing the linear models.
+
+```{r,message=FALSE,warning=FALSE,results='hide'}
+map_to_season <- function(month_int){
+  
+  months_df <- data.frame(month_num = c(1,2,3,4,5,6,7,8,9,10,11,12), 
+                          season=c('winter', 'winter', 'spring', 'spring', 'spring', 'summer', 'summer', 'summer', 'fall', 'fall', 'fall', 'winter'))
+  
+  result <- months_df[months_df$month_num == month_int,]$season
+  return(result)
+}
+
+map_to_season(1)
+```
+|           This is the Maine data frame with seasonality added. I have hidden the output because it is massive.
+
+```{r,results='hide'}
+
+maine_temp <- city_temp_clean%>%
+  filter(State=='Maine')
+
+maine_seasons <- unlist(lapply(month(maine_temp$parsedDate), map_to_season))
+
+maine_temp_seasons <- cbind(maine_temp, maine_seasons)
+
+maine_temp_seasons
+```
+
+|           Below I summarized the linear model that takes seasonality into account, in the same way that I tested my global monthly temperature model above. The results are stark. With an adjusted R-squared of 0.7781, the model accounting for seasonality is predicting approximately 77% of the variation in temperature, as compared to 0.07% in the restricted model. By factoring seasons in, I end up with a far stronger fit for the model. The swings in temperature brought on by the changing seasons are so wide that they introduce an immense amount of noise. A simple linear regression is hopeless for describing a meaningful trend for the overall data as a result. Transforming the line by season, even by a very rough and admittedly inaccurate assignment of season, vastly improves the predictive power of the model. The model has treated fall as the reference, comparing the other three seasons to it.
+
+|           To wrap up this exploration, I conducted a likelihood ratio test on the monthly models for Maine temperature with and without accounting for seasonality, and included a rough graph of the two models with some of their numeric characteristics displayed. My null hypothesis for the likelihood ratio test is that after accounting for seasonality, time is not predictive of average monthly temperature. My alternative hypothesis is that after accounting for seasonality, time is predictive of monthly average temperature. The P-value for this test is essentially zero at 2.2e-16, leading me to reject the null hypothesis at an alpha of 0.01 and conclude that the seasonality model does predict temperature through time to an extent. Its higher R squared further strengthens this case. The graph below shows the two visually identical regressions - but the numeric characteristics of the models are vastly different. The top chart is the restricted model, and the bottom is the full model.
+  
+```{r,message=FALSE,warning=FALSE}
+maine_seasonal_test <- city_temp_clean%>%
+  filter(State=='Maine')%>%
+  group_by(City,Year=year(parsedDate),Month=month(parsedDate)) %>% 
+  summarise(AvgTempCelsius=mean(AvgTempCelsius, na.rm = TRUE))%>%
+  mutate(firstofmonth = ymd(paste0(Year,'-' , Month, '-1')))
+  
+  maine_seasons <- unlist(lapply(maine_seasonal_test$Month, map_to_season))
+
+  maine_seasonal_test <- cbind(maine_seasonal_test, maine_seasons)
+  
+  names(maine_seasonal_test)[6] <- 'season'
+  
+   maine_seasonal_test %>%
+    lm(AvgTempCelsius~firstofmonth, data= .) %>%
+    summary()
+  
+  maine_seasonal_test %>%
+    lm(AvgTempCelsius~firstofmonth+as.factor(season), data= .) %>%
+    summary()
+    #plot()
+  
+```
+
+
+```{r}
+restricted <- maine_seasonal_test %>%
+  
+  group_by(season)%>%
+  
+    lm(AvgTempCelsius~firstofmonth, data= .)
+
+full <- maine_seasonal_test %>%
+  
+  group_by(season) %>%
+  
+    lm(AvgTempCelsius~firstofmonth+as.factor(season), data= .)
+
+  anova(restricted, full, test="LRT")
+```
+
+```{r,message=FALSE,warning=FALSE}
+ggplotRegression <- function (fit) {
+
+require(ggplot2)
+
+ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+  geom_line() +
+  stat_smooth(method = "lm", col = "red") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+}
+
+grid.arrange(ggplotRegression(restricted), ggplotRegression(full) )
+
+
+```
+
+NZ Data:
+https://www.stats.govt.nz/indicators/annual-glacier-ice-volumes
+https://data.mfe.govt.nz/table/89401-rainfall-19602016/data/
+
+# References
+
+  * Alboukadel Kassambara (2020). ggpubr: 'ggplot2' Based Publication Ready Plots. R package version 0.4.0.
+    https://CRAN.R-project.org/package=ggpubr
+  
+  * Brian G. Peterson and Peter Carl (2020). PerformanceAnalytics: Econometric Tools for Performance and Risk Analysis. R package version 2.0.4.
+    https://CRAN.R-project.org/package=PerformanceAnalytics
+  
+  * Correlation matrix : A quick start guide to analyze, format and visualize a correlation matrix using R software - Easy Guides - Wiki - STHDA. (n.d.). Sthda.Com. Retrieved December 12, 2021, from                  http://www.sthda.com/english/wiki/correlation-matrix-a-quick-start-guide-to-analyze-format-and-visualize-a-correlation-matrix-using-r-software
+  
+  * H. Wickham. ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New York, 2016.
+  
+  * Hadley Wickham, Romain François, Lionel Henry and Kirill Müller (2021). dplyr: A Grammar of Data Manipulation. R package version 1.0.7. https://CRAN.R-project.org/package=dplyr
+  
+  * Hao Zhu (2021). kableExtra: Construct Complex Table with 'kable' and Pipe Syntax. R package version 1.3.4. https://CRAN.R-project.org/package=kableExtra
+  
+  * Keon-Woong Moon. R statistics and graphs for medical papers. Hannaare Seoul, 2015.
+  
+  * Keon-Woong Moon (2021). webr: Data and Functions for Web-Based Analysis. R package version 0.1.6. https://github.com/cardiomoon/webr
+  
+  * Mauna Loa Temperature. (n.d.). [Graph]. Climate Concerns Word Press. https://oz4caster.files.wordpress.com/2016/02/fig-2-mauna-loa-tmp-ann-1977-1994.gif
+  
+  * Moritz, Steffen andBartz-Beielstein, Thomas. "imputeTS: Time Series MissingValue Imputation in R." R Journal 9.1 (2017). doi: 10.32614/RJ-2017-009.
+
+  * R Core Team. (2016). R: A Language and Environment for Statistical Computing. Vienna, Austria. Retrieved from https://www.R-project.org/
+  
+  * Urban population | Data. (n.d.). World Bank. Retrieved November 13, 2021, from https://data.worldbank.org/indicator/SP.URB.TOTL
+  
+  * Wickham et al., (2019). Welcome to the tidyverse. Journal of Open Source Software, 4(43), 1686, https://doi.org/10.21105/joss.01686
+  
+  * Yuan Tang, Masaaki Horikoshi, and Wenxuan Li. "ggfortify: Unified Interface to Visualize Statistical Result of Popular R Packages." The R Journal
+    8.2 (2016): 478-489.
+    
+    
+
+# Appendix of Supplementary Material
+
+```{r Global_Temperature_With_Trend_Line , message=FALSE,warning=FALSE}
+Global_Temperature_With_Trend_Line <- city_temp_clean%>%
+  group_by(Year)%>%
+  dplyr::summarize(
+    Annual_Avg=mean(AvgTempCelsius, na.rm=TRUE),SD=sd(AvgTempCelsius, na.rm=TRUE)
+  ) %>%
+  ggplot(aes(Year,Annual_Avg)) +
+    geom_line()+
+    geom_smooth(method='lm',se=F)+
+    theme_bw()+ 
+    labs(y="Annual Average Temperature (Degrees Celsius)", title = "Average Global Temperature With Trend Line", subtitle = "1995-2019")
+
+Global_Temperature_With_Trend_Line
+```
+
+
+
+```{r euro_countries_with_trend_line , message=FALSE,warning=FALSE}
+city_temp_clean%>%
+  filter(Region=="Europe")%>%
+  group_by(Year=year(parsedDate),Country)%>%
+  dplyr::summarize(
+    Annual_Avg=mean(AvgTempCelsius, na.rm=TRUE)
+  ) %>%
+  ggplot(aes(Year,Annual_Avg)) +
+    geom_line()+
+    geom_smooth(method='lm',se=F)+
+    theme_bw()+ 
+    geom_abline(intercept=euro_intercept, slope=euro_slope,aes(color='red')) +
+    labs(y="Mean Annual Temperature (Degrees Celsius)", title = "Average Temperature Linear Model With European Trend Line", subtitle = "European Countries, 1995-2019") +
+    facet_wrap(~Country)
+```
+```{r France_Annual_Average_Trend,message=FALSE,warning=FALSE}
+
+city_temp_clean%>%
+  group_by(Year)%>%
+  filter(Country=="France")%>%
+    dplyr::summarize(
+    Annual_Avg=mean(AvgTempCelsius, na.rm=TRUE),SD=sd(AvgTempCelsius, na.rm=TRUE)) %>%
+    ggplot(aes(Year,Annual_Avg)) +
+      geom_line()+
+      geom_smooth(method='lm',se=F)+
+      geom_abline(intercept=euro_intercept, slope=euro_slope, color='red', name="European Trend Line") +
+      ylim(9, 16)+
+      theme_bw()+
+      labs(y="Annual Average Temperature (Degrees Celsius)", title = "Average Temperature in France With Best Fit Line and European Trend Line", subtitle = "1995-2019")
+      
+```  
+
+
+|           Examining countries that had cooler temperatures following the Iceland Eruption
+
+I planned to look at the Northern European temps following the eruption of Eyjafjallajökull in Iceland in April of 2010. At this time I find my knowledge of models to fall a bit short in coming to a statistical conclusion about whether an external event like the eruption might have had an impact over such a short time frame. However, I identified several countries that showed a dip in temperature around the time of the eruption and included a graph of their lines in relation to the European trend line in the Appendix: **{r Examining_Volcanic_Effect}**. The drop in temperature observed in that graph might have been related to the volcano. It might have been caused by a temporary climate effect, like a polar vortex here in the US or the effect of El Nino on the west coast of the Americas. Or it might have been a fluke! But it is important to note that the slopes of the fit line for most of those countries were actually negative between 2008 and 2011. The point is that, even when averaged by month or year, temperature data is noisy. Overarching trends may well say nothing meaningful about an individual region's future. 
+
+```{r Examining_Volcanic_Effect, message=FALSE,warning=FALSE}
+city_temp_clean%>%
+  filter(Country==c("Norway","Denmark","Sweden","The Netherlands","Finland","France","United Kingdom"),year(parsedDate)==c("2008","2009","2010","2011"))%>%
+  group_by(Year=year(parsedDate),Country)%>%
+  dplyr::summarize(
+    Annual_Avg=mean(AvgTempCelsius, na.rm=TRUE)
+  ) %>%
+  ggplot(aes(Year,Annual_Avg)) +
+    geom_line()+
+    geom_smooth(method='lm',se=F)+
+    theme_bw()+ 
+    geom_abline(intercept=euro_intercept, slope=euro_slope,aes(color='red')) +
+    labs(y="Annual Average Temperature (Degrees Celsius)", title = "Examining Anomalous Temps", subtitle = "2008-2011") +
+    facet_wrap(~Country)
+```
+|           Function to create a dataframe of slopes of lm() for various cities of interest. I can use this to isolate slopes of interest for linear models by city - for example, Paris has a negative slope over the time period.
+
+```{r,message=FALSE,warning=FALSE}
+
+# filter object to pass to the function: cities_of_interest is a dataframe with of annual average temperature for each city passed to filter() modifier. We can adjust this to provide monthly averages as well for more granularity.
+cities_of_interest <- city_temp_clean %>%
+  filter(is.element(City, c("Paris","Detroit"))) %>%
+  group_by(Year=year(parsedDate), City) %>%
+  dplyr::summarize(avg_temp_c = mean(AvgTempCelsius, na.rm=TRUE))
+  
+
+
+regression_by_country <- function(city_input){
+  
+  temp_fit <- cities_of_interest %>%
+    filter(City==city_input) %>%
+    lm(avg_temp_c~Year,data= .)
+  
+  return(temp_fit$coefficients[2])
+  
+  }
+
+
+all_coefficients <- unlist(lapply(unique(cities_of_interest$City), regression_by_country))
+
+lm_df <- data.frame(City = unique(cities_of_interest$City), lm_coefficient = all_coefficients)
+
+lm_df
+```
+
+```{r}
+#Filtering out records with States (predominantly this means US Data) and arranging by record count to isolate incomplete records. This is part of the cleaning process, but also provides a quick reference for filtering code should we want to do US-specific analyses.
+city_temp_clean %>%
+  group_by(State, City) %>%
+  filter(State!="") %>%
+  summarise(Annual_Avg=mean(AvgTempCelsius, na.rm=TRUE), Record_count=n())
+```
+
+
+## Saving Visuals - Excluded from Code Chunk so it doesn't run.
+
+regional_model_table <- final_analysis%>%save_kable("/Users/harrypodolsky/Desktop/regional_model_table.pdf")
+
+save_graph(city_temp_clean%>%
+  group_by(Year)%>%
+  dplyr::summarize(
+    "Annual Average Temperature (C)"=mean(AvgTempCelsius, na.rm=TRUE),SD=sd(AvgTempCelsius, na.rm=TRUE)
+  )%>%
+ggscatter(x = "Year", y = "Annual Average Temperature (C)", 
+          add = "reg.line", 
+          conf.int = TRUE, 
+          add.params = list(color = "red",
+                            fill = "lightblue"),
+          color = "Annual Average Temperature (C)", 
+          cor.coef = TRUE, cor.method = "pearson", 
+          xlab = "Year", ylab = "Temperature in Celsius")+
+          labs(title = "Linear Model of Annual Global Temperature", subtitle= "With Confidence Interval")+
+          theme_bw(),
+"/Users/harrypodolsky/Desktop/Linear_Model_Global_Temp.png")
+
+save_graph(Auckland_T_Test,"/Users/harrypodolsky/Desktop/Auckland_T_Test.png") 
+
+save_graph(gridExtra::grid.arrange(grobs = annual_lm_diagnostic@plots, top = "Diagnostic Charts for Annual Temperature Model"), "/Users/harrypodolsky/Desktop/Linear_Model_Diagnostic.png")
+
+save_graph(summ_table_presentation,summtablepresentation)
+
+save_graph(Global_Temperature_With_Trend_Line,"/Users/harrypodolsky/Desktop/Global_Temperature_With_Trend_Line.png")
+
+summary_statistics_by_region%>% 
+    kbl(caption = "Summary Statistics by Region", ) %>%
+    kable_styling( font_size = 16)%>%
+  kable_paper("hover", full_width = F)%>%
+    kable_material_dark()%>%
+  save_kable(file="/Users/harrypodolsky/Desktop/summary_statistics_region1.png", zoom = 1.5)
+  
+save_graph(grid.arrange(ggplotRegression(restricted), ggplotRegression(full) ),"/Users/harrypodolsky/Desktop/Maine_Models_With_Trend_Line.png")
+
+
+# New Zealand Exploration
+
+```{r,results='hide',message=FALSE,warning=FALSE}
+# new dataframe for New Zealand Data
+nz_temp <- city_temp_clean%>%filter(Country=='New Zealand')
+
+nz_monthly_temp <- nz_temp%>%
+  group_by(Year=year(parsedDate),Month=month(parsedDate)) %>% 
+  summarise(AvgTempCelsius=mean(AvgTempCelsius, na.rm = TRUE))%>%
+  mutate(firstofmonth = ymd(paste0(Year,'-' , Month, '-1')))
+
+# There are 9132 records in this data, with 59 NA's for temperature data. All of the observations are made in Auckland, the capital city. Auckland is located on the North Island of New Zealand. this temperature record will be used as a proxy for country-wide temperature for the purposes of this analysis.
+
+
+
+```
+```{r}
+city_temp_clean%>%
+  group_by(Year)%>%
+  filter(Country=="New Zealand")%>%
+    dplyr::summarize(
+    Annual_Avg=mean(AvgTempCelsius, na.rm=TRUE),SD=sd(AvgTempCelsius, na.rm=TRUE)) %>%
+    ggplot(aes(Year,Annual_Avg)) +
+      geom_line()+
+      geom_smooth(method='lm',se=F)+
+      #geom_abline(intercept=euro_intercept, slope=euro_slope, color='red', name="European Trend Line") +
+      #ylim(9, 16)+
+      theme_bw()+
+      labs(y="Annual Average Temperature (Degrees Celsius)", title = "Average Temperature in NZ With Best Fit Line", subtitle = "1995-2019")
+```
+
+```{r}
+#daily lm for NZ temp - AUCKLAND IS SEASONAL
+nz_temp_fit <- lm( nz_temp$AvgTempCelsius~nz_temp$parsedDate)
+plot(nz_temp_fit)
+```
+
+```{r,message=FALSE,warning=FALSE,results='hide'}
+map_to_season_south <- function(month_int){
+  
+  months_df <- data.frame(month_num = c(1,2,3,4,5,6,7,8,9,10,11,12), 
+                          season=c('summer', 'summer', 'fall', 'fall', 'fall', 'winter', 'winter', 'winter', 'spring', 'spring', 'spring', 'summer'))
+  
+  result <- months_df[months_df$month_num == month_int,]$season
+  return(result)
+}
+
+map_to_season_south(1)
+```
+
+
+```{r,results='hide'}
+
+#nz_temp <- city_temp_clean%>%
+  #filter(Country=='New Zealand')
+nz_monthly_temp <- nz_temp%>%
+  group_by(Year=year(parsedDate),Month=month(parsedDate)) %>% 
+  summarise(AvgTempCelsius=mean(AvgTempCelsius, na.rm = TRUE))%>%
+  mutate(firstofmonth = ymd(paste0(Year,'-' , Month, '-1')))
+
+nz_seasons <- unlist(lapply(month(nz_monthly_temp$firstofmonth), map_to_season_south))
+
+nz_monthly_temp <- cbind(nz_monthly_temp, nz_seasons)
+
+names(nz_monthly_temp) <- c('Year','Month','AvgTempCelsius','firstofmonth','season')
+
+
+```
+
+```{r}
+# monthly temperatures in NZ, adding a unique column "first of month" that denotes each unique month and year
+ 
+
+nz_monthly_temp %>%
+  lm(AvgTempCelsius~firstofmonth, data= .) %>%
+  summary()
+
+nz_monthly_temp%>%
+  lm(AvgTempCelsius~firstofmonth, data= .) %>%
+  ggplot(aes(firstofmonth,AvgTempCelsius)) +
+      geom_line()+
+      geom_smooth(method='lm',se=F)+
+      #geom_abline(intercept=euro_intercept, slope=euro_slope, color='red', name="European Trend Line") +
+      #ylim(9, 16)+
+      theme_bw()+
+      labs(y="Monthly Average Temperature (Degrees Celsius)", title = "Average Monthly Temperature in NZ With Best Fit Line", subtitle = "1995-2019")
+```
+
+```{r}
+restricted <- nz_monthly_temp %>%
+  
+  group_by(season)%>%
+  
+    lm(AvgTempCelsius~firstofmonth, data= .)
+
+full <- nz_monthly_temp %>%
+  
+  group_by(season) %>%
+  
+    lm(AvgTempCelsius~firstofmonth+as.factor(season), data= .)
+
+
+  nz_monthly_temp %>%
+    lm(AvgTempCelsius~firstofmonth, data= .) %>%
+    summary()
+  
+  nz_monthly_temp %>%
+    lm(AvgTempCelsius~firstofmonth+as.factor(season), data= .) %>%
+    summary()
+
+
+
+
+  
+```
+
+|           I summarized two linear models,the first without accounting for season, and the second factoring in season as a dummy variable. The results are stark. With an adjusted R-squared of 0.7993, the model accounting for seasonality is predicting approximately 79.9% of the variation in temperature, as compared to an adjusted R-squared of just under 0% prediction value in the restricted model. By factoring seasons in, I end up with a far stronger fit for the model. The swings in temperature brought on by the changing seasons are so wide that they introduce an immense amount of noise. A simple linear regression is hopeless for describing a meaningful trend for the overall data as a result. Transforming the line by season, even by a very rough and admittedly inaccurate assignment of season by month, vastly improves the predictive power of the model. The model has treated fall as the reference, comparing the other three seasons to it.
+```{r}
+anova(restricted, full, test="LRT")
+```
+
+|           To wrap up this exploration, I conducted a likelihood ratio test on the monthly models for New Zealand temperature with and without accounting for seasonality, and included a rough graph of the two models with some of their numeric characteristics displayed. My null hypothesis for the likelihood ratio test is that after accounting for seasonality, time is not predictive of average monthly temperature. My alternative hypothesis is that after accounting for seasonality, time is predictive of monthly average temperature. The P-value for this test is essentially zero at 2.2e-16, leading me to reject the null hypothesis at an alpha of 0.01 and conclude that the seasonality model does predict temperature through time to an extent. The much higher R-squared of 0.7993 further strengthens this case. The graph below shows the two visually identical regressions - but the numeric characteristics of the models are vastly different. The top chart is the restricted model, and the bottom is the full model factoring seasonality.
+
+```{r}
+ggplotRegression <- function (fit) {
+
+require(ggplot2)
+
+ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+  geom_line() +
+  stat_smooth(method = "lm", col = "red") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+}
+
+grid.arrange(ggplotRegression(restricted), ggplotRegression(full) )
+```
+
+# Ice Data imputation
+
+```{r}
+
+
+#find annual ice fil
+#nz_ice<- read.csv(file.choose())
+#expand to dataframe of monthly data, with columns for annual total and monthly volume (/12), which is garbade
+nz_monthly_ice <- nz_ice%>%mutate(month = 1) %>%
+  complete(year, month = 1:12) %>%
+  fill(ice_volume_km.3) 
+  #mutate_at(vars(ice_volume_km.3), ~./12)
+
+#character vector of seasons
+nz_seasons <- unlist(lapply(nz_monthly_ice$month, map_to_season_south))
+
+#add character vector of seasons to monthly ice dataframe
+nz_monthly_ice <- cbind(nz_monthly_ice, nz_seasons)
+
+
+
+nz_monthly_ice <- nz_monthly_ice%>%mutate(seasonal_ice= 
+                                            ifelse(grepl("summer",nz_seasons), ice_volume_km.3*.95,
+                                                   
+                                                   ifelse(grepl("fall",nz_seasons), ice_volume_km.3*1.025,
+                                                   
+                                                   ifelse(grepl("winter",nz_seasons), ice_volume_km.3*1.05,
+                                                   
+                                                   ifelse(grepl("spring",nz_seasons), ice_volume_km.3*.975,"NA")))))
+                                                   
+nz_monthly_ice
+```
+
+```{r}
+temp_monthly = data.frame(list(1:12, c(.925, .95, .975, 1, .975, 1, 1.05, 1.025, 1, .975, .95, .925)))
+temp_monthly
+names(temp_monthly)= c("month", "delta")
+temp_monthly
+
+nz_monthly_ice <- left_join(nz_monthly_ice, temp_monthly, by="month")
+nz_monthly_ice <- nz_monthly_ice %>% mutate(monthly_ice = delta* ice_volume_km.3)
+
+nz_monthly_ice <- nz_monthly_ice %>% select(year,month,monthly_ice)
+```
+
+
+
