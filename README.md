@@ -1,2 +1,2 @@
-# demonstration
-Work Samples in R and SQL.
+# Work Samples in Python, SQL, and R. 
+
